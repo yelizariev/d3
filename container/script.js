@@ -1,3 +1,15 @@
+var canvas = document.querySelector("canvas"),
+    context = canvas.getContext("2d"),
+    width = canvas.width,
+    height = canvas.height;
+
+var BOX_SIZE = 0.8,
+    FORCE_GRAVITY = 1,
+    FORCE_GROUPING = 10,
+    FORCE_COLLIDE = 1,
+    DECAY=0.03, //default 0.0228
+    FORCE_TIME = 0;
+
 var WATER = {
     'collision': 'water',
     'radius': 5,
@@ -15,15 +27,15 @@ var groups = [
     // WATER
     Object.assign({
         id: 'w1',
-        count: 100,
+        count: 2000,
         links: ['b1','b2','b3'],
-        time: 200,
+        time: 20,
         color: '#F00',
     }, WATER),
 
     Object.assign({
         id: 'w2',
-        count: 30,
+        count: 300,
         links: ['b4','b5','b7'],
         time: 50,
         color: '#0F0',
@@ -31,7 +43,7 @@ var groups = [
 
     Object.assign({
         id: 'w3',
-        count: 130,
+        count: 1300,
         links: ['b4','b5','b7'],
         time: 100,
         color: '#00F',
@@ -104,26 +116,46 @@ var groups = [
 
 var i=0;
 
-for (var ind = 0; ind < groups.length; ++ind) {
-    var g = groups[ind];
+_.each(groups, function(g){
+    // tmp
+    if (g.collision != WATER.collision)
+        return;
+
     g.nodes = d3.range(g.count).map(function(){
+        y_init = height * ( 1 - BOX_SIZE * g.time/100) + (Math.random()-0.5) * g.count * 0.1;
         return {
             index: i++,
             group: g,
+            x: Math.random()*width,
+            // put y accorting to time
+            y: y_init,
+            y_init: y_init,
         };
     });
-}
 
-var canvas = document.querySelector("canvas"),
-    context = canvas.getContext("2d"),
-    width = canvas.width,
-    height = canvas.height;
+    var simulation = d3.forceSimulation(g.nodes)
+        .alphaDecay(DECAY)
+        .force('grouping', d3.forceManyBody().strength(FORCE_GROUPING).distanceMin(0.5*g.radius).distanceMax(10*g.radius));
 
-// WATER -- no need to drag, so don't save to simulation
+    g.simulation = simulation;
+});
 
-var water_nodes = _.filter(groups, function (g){ return g.collision = WATER.collision }).reduce(function (sum, g){ return g.nodes });
-// STOPHERE
+var water_nodes = _.filter(groups, function (g){
+    return g.collision == WATER.collision;
+ }).reduce(function (sum, g){
+     return sum.concat(g.nodes);
+ }, []);
 
+// WATER -- no need to drag, so don't save to a variable
+d3.forceSimulation(water_nodes)
+    .force('collide', d3.forceCollide(WATER.radius).strength(FORCE_COLLIDE))
+//    .force('collide', d3.forceCollide(WATER.radius).radius(function(d) { return d.r + 0.5; }).iterations(2))
+    .force("down", forceGravity(FORCE_GRAVITY))
+    .alphaDecay(DECAY)
+    .on("tick", ticked);
+
+
+/*
 var simulation = d3.forceSimulation(nodes)
     .force("charge", d3.forceManyBody().strength(-0.1*radius))
     .force("down", d3.forceY(height))
@@ -131,7 +163,6 @@ var simulation = d3.forceSimulation(nodes)
 //                    .force("link", d3.forceLink(links).strength(1).distance(20).iterations(10))
 //                   .force("box", box_force)
     .on("tick", ticked);
-
 
 
 var simulation = d3.forceSimulation(nodes)
@@ -149,7 +180,9 @@ d3.select(canvas)
           .on("start", dragstarted)
           .on("drag", dragged)
           .on("end", dragended));
+*/
 
+/*
 function box_force() {
     var fixed_radius = radius*1.1;
     for (var i = 0, n = nodes.length; i < n; ++i) {
@@ -162,24 +195,41 @@ function box_force() {
         // curr_node.y = Math.max(radius, curr_node.y);
     }
 }
-function fixBox() {
-    for (var i = 0, n = nodes.length; i < n; ++i) {
-        curr_node = nodes[i];
-        if (curr_node.y < height * 0.2){
-            continue;
+*/
+function forceGravity(value) {
+    var nodes;
+    function force(alpha){
+        for (var i = 0, n = nodes.length, node, k = alpha * 0.1; i < n; ++i) {
+            node = nodes[i];
+            node.vy += value * alpha * alpha;
         }
-        curr_node.x = Math.max(radius, Math.min(width - radius, curr_node.x));
-        curr_node.y = Math.max(radius, Math.min(height - radius, curr_node.y));
     }
+    force.initialize = function(_){
+        nodes = _;
+    };
+
+    return force;
+
+}
+
+function fixBox(node) {
+    if (node.y < height * (1- BOX_SIZE)){
+        return;
+    }
+    var radius = node.group.radius;
+    node.x = Math.max(radius, Math.min(width - radius, node.x));
+    node.y = Math.max(radius, Math.min(height - radius, node.y));
 }
 
 function ticked() {
+    var nodes = this.nodes();
+
     context.clearRect(0, 0, width, height);
     context.save();
     //context.translate(width / 2, height / 2);
 
     context.beginPath();
-    links.forEach(drawLink);
+    //links.forEach(drawLink);
     context.strokeStyle = "#aaa";
     context.stroke();
 
@@ -221,7 +271,11 @@ function drawLink(d) {
 }
 
 function drawNode(d) {
-    context.moveTo(d.x + 3, d.y);
-    context.arc(d.x, d.y, radius, 0, 2 * Math.PI);
+    context.fillStyle = d.group.color;
+    //context.strokeStyle = d.group.color;
+    context.moveTo(d.x + d.group.radius, d.y);
+    context.beginPath();
+    context.arc(d.x, d.y, d.group.radius, 0, 2 * Math.PI);
+    context.fill();
 }
 
